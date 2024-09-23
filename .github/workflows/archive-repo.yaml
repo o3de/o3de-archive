@@ -1,0 +1,68 @@
+# This automation archives selected repos with LFS objects and saves it to a specific tag
+# Contact SIG-Build for any issues or looking to make changes
+
+name: Archive repos
+
+on:
+  # Allows you to run this workflow manually from the Actions tag
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  Publish:
+    name: Publish ${{ matrix.repository }} for ${{ matrix.branch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        owner: [o3de]
+        repository: [o3de, o3de-extras]
+        branch: [development, stabilization/2409]
+    
+    steps:
+      # Checks-out the repository under $GITHUB_WORKSPACE, so the job can access it
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.owner }}/${{ matrix.repository }}
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+      
+      - name: Git LFS pull
+        run: |
+          git lfs install
+          git lfs fetch
+      
+      - name: Get repo vars
+        id: vars
+        run: |
+          VERSION=$(echo "${{ matrix.branch }}" | tr '/' '-')
+          echo ::set-output name=latest_log::$(git log --pretty=short HEAD^..HEAD)
+          echo ::set-output name=archive_file::${{ matrix.repository }}-$VERSION
+          
+      - name: Archive repo as compressed files
+        run: |
+          git archive -o ${{ steps.vars.outputs.archive_file }}.tar.gz HEAD
+      
+      - name: Split archive files if over limit
+        run: | # MAXSIZE = 2GB
+          MAXSIZE=2000000000
+          ARCFILE=${{ steps.vars.outputs.archive_file }}
+          if [ $(stat -c '%s' $ARCFILE.tar.gz) -ge $MAXSIZE ]; then
+            mv $ARCFILE.tar.gz temp-archive.tar.gz && split -b $MAXSIZE temp-archive.tar.gz $ARCFILE.tar.gz.part
+            rm -f temp-archive.*
+          fi
+          
+      # Creates a release tag based on inputs
+      - name: Create Release
+        uses: ncipollo/release-action@v1.14.0
+        with:
+          replacesArtifacts: true
+          removeArtifacts: true
+          allowUpdates: true
+          name: ${{ steps.vars.outputs.archive_file }}
+          tag: ${{ steps.vars.outputs.archive_file }}
+          body: |
+            ${{ steps.vars.outputs.latest_log }}
+          artifacts: ${{ steps.vars.outputs.archive_file }}.tar*
