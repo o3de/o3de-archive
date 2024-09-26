@@ -6,6 +6,9 @@ name: Archive repos
 on:
   # Allows you to run this workflow manually from the Actions tag
   workflow_dispatch:
+  # Runs on a schedule. cron time is based on UTC
+  schedule:
+    - cron: "0 7 * * *"
 
 permissions:
   contents: write
